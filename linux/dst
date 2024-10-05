@@ -1,0 +1,165 @@
+#!/bin/bash
+
+MASTER_NAME="dst-master"
+CAVER_NAME="dst-caves"
+STEAMCMD_PATH="steamcmd"
+DST_PATH="\"/home/steam/.steam/steam/steamapps/common/Don't Starve Together Dedicated Server/bin\""
+DATA_PATH="/home/steam/.klei/DoNotStarveTogether"
+CLUSTER_NAME="MyDediServer"
+
+is_window_exist() {
+  local window_name=$1
+  screen -list | grep -Pq "\.$window_name\t"
+}
+exit_window() {
+  i=0
+  while is_window_exist $1
+  do
+    screen -S $1 -X stuff "^C"
+    screen -S $1 -X stuff "exit\n"
+    dots=$(( i % 3 + 1 ))
+    printf "等待窗口关闭%.${dots}s   \r" "..."
+    ((i=i+1))
+    sleep 1
+  done
+  echo
+}
+
+start() {
+    # 在这里编写启动服务的命令
+    echo "Starting Master Service..."
+    if is_window_exist $MASTER_NAME; then
+      echo "Master is exist."
+    else
+      screen -dmS $MASTER_NAME
+      screen -S $MASTER_NAME -X stuff "cd $DST_PATH \n"
+      screen -S $MASTER_NAME -X stuff "./dontstarve_dedicated_server_nullrenderer -console -cluster $CLUSTER_NAME -shard Master\n"
+      echo "Master started successfully."
+    fi
+
+    echo "Starting Caver Service..."
+    if is_window_exist $CAVER_NAME; then
+      echo "Caver is exist."
+    else
+      screen -dmS $CAVER_NAME
+      screen -S $CAVER_NAME -X stuff "cd $DST_PATH \n"
+      screen -S $CAVER_NAME -X stuff "./dontstarve_dedicated_server_nullrenderer -console -cluster $CLUSTER_NAME -shard Caves\n"
+      echo "Caver started successfully."
+    fi
+}
+
+restart() {
+    echo "Restarting service..."
+    # 在这里编写重启服务的命令
+    stop
+    start
+}
+
+stop() {
+    echo "Stopping service..."
+    # 在这里编写停止服务的命令
+    if is_window_exist $MASTER_NAME; then
+      screen -S $MASTER_NAME -X stuff "^C"
+      exit_window $MASTER_NAME
+      echo "Master is stopped"
+    else
+      echo "Master is not exist."
+    fi
+
+    if is_window_exist $CAVER_NAME; then
+      screen -S $CAVER_NAME -X stuff "^C"
+      exit_window $CAVER_NAME
+      echo "Caver is stopped"
+    else
+      echo "Caver is not exist."
+    fi
+}
+
+backup() {
+    echo "Backing up data..."
+    # 在这里编写备份数据的命令
+    cd $DATA_PATH
+    current_datetime=$(date +"%Y-%m-%d_%H-%M-%S")
+    filename="$current_datetime-$CLUSTER_NAME-bak.zip"
+    zip "$DATA_PATH/$filename" -r "./$CLUSTER_NAME"
+    python3 /home/steam/.local/py/dstbackup.py "$DATA_PATH" "$filename"
+}
+
+update() {
+    echo "Updating dst..."
+    # 在这里编写更新服务的命令
+    current_buildid=$($STEAMCMD_PATH +login luobaijingying +app_info_print 343050 +quit | grep -Po '"buildid"\s*"\K[^"]+')
+    echo "更新前"
+    $STEAMCMD_PATH +login luobaijingying +app_update 343050 +quit
+    echo $?
+    echo "更新后"
+    latest_buildid=$($STEAMCMD_PATH +login luobaijingying +app_info_update +app_info_print 343050 +quit | grep -Po '"buildid"\s*"\K[^"]+')
+    echo "current_buildid:$current_buildid"
+    echo "latest_buildid:$latest_buildid"
+    if [ "$current_buildid" != "$latest_buildid" ]; then
+      echo "todo 更新"
+      exit 1
+    else
+      echo "dst is up to date."
+    fi
+}
+auto_update() {
+    msn=$($STEAMCMD_PATH +login luobaijingying +app_update 343050 +quit)
+    echo $msn
+    if [[ "$msn" =~ "already up to date" ]]; then
+      echo "already up to date"
+    else
+      echo "updated"
+      exit 1
+    fi
+}
+notice() {
+    local msn=$1
+    echo "Service Notice: $msn"
+    if is_window_exist $MASTER_NAME; then
+      screen -S $MASTER_NAME -X stuff "c_announce('$msn')\n"
+    else
+      echo "Service is not exist!!!"
+    fi
+}
+args_num=$#
+command=$1
+CLUSTER_NAME=${2:-MyDediServer}
+MASTER_NAME="$CLUSTER_NAME-master"
+CAVER_NAME="$CLUSTER_NAME-caves"
+case $command in
+    start)
+        start
+        ;;
+    restart)
+        restart
+        ;;
+    stop)
+        stop
+        ;;
+    backup)
+        backup
+        ;;
+    update)
+        update
+        ;;
+    auto-update)
+        auto_update
+        ;;
+    notice)
+        notice_msn=${3:-通知}
+        if [ $args_num -eq 2 ]; then
+            CLUSTER_NAME="MyDediServer"
+            MASTER_NAME="$CLUSTER_NAME-master"
+            CAVER_NAME="$CLUSTER_NAME-caves"
+            notice_msn=$2
+        fi
+        notice $notice_msn
+        ;;
+    *)
+        echo "Invalid command. Usage: dst start|restart|stop|backup|update|auto-update|notice [clusterName:MyDediServer]"
+        exit 1
+        ;;
+esac
+
+exit 0

@@ -12,6 +12,7 @@ is_window_exist() {
   screen -list | grep -Pq "\.$window_name\t"
 }
 exit_window() {
+  sleep 10
   i=0
   while is_window_exist $1
   do
@@ -59,7 +60,7 @@ stop() {
     echo "Stopping service..."
     # 在这里编写停止服务的命令
     if is_window_exist $MASTER_NAME; then
-      screen -S $MASTER_NAME -X stuff "^C"
+      screen -S $MASTER_NAME -X stuff "c_shutdown()"
       exit_window $MASTER_NAME
       echo "Master is stopped"
     else
@@ -67,11 +68,19 @@ stop() {
     fi
 
     if is_window_exist $CAVER_NAME; then
-      screen -S $CAVER_NAME -X stuff "^C"
+										 
       exit_window $CAVER_NAME
       echo "Caver is stopped"
     else
       echo "Caver is not exist."
+    fi
+}
+
+status() {
+    if is_window_exist $MASTER_NAME; then
+      echo "Running"
+    else
+      echo "Stopped"
     fi
 }
 
@@ -122,6 +131,22 @@ notice() {
       echo "Service is not exist!!!"
     fi
 }
+add() {
+    local file=$1
+    local filemd50=`md5sum $file`
+    local filemd5=${filemd50%%  *}
+
+    if [ ! -d "$DATA_PATH/$filemd5" ]; then
+      mkdir "$DATA_PATH/$filemd5"
+    else
+      echo "exists"
+      exit 0
+    fi
+
+    unzip -d "$DATA_PATH/$filemd5" "$file"
+    echo "success"
+}
+
 args_num=$#
 command=$1
 CLUSTER_NAME=${2:-MyDediServer}
@@ -136,6 +161,9 @@ case $command in
         ;;
     stop)
         stop
+        ;;
+    status)
+        status
         ;;
     backup)
         backup
@@ -156,8 +184,12 @@ case $command in
         fi
         notice $notice_msn
         ;;
+    add)
+        file=$2
+        add $file
+        ;;
     *)
-        echo "Invalid command. Usage: dst start|restart|stop|backup|update|auto-update|notice [clusterName:MyDediServer]"
+        echo "Invalid command. Usage: dst start|restart|stop|status|backup|update|auto-update|notice [clusterName:MyDediServer]"
         exit 1
         ;;
 esac
